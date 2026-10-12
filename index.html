@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Karrair Voyages</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="util"><div class="wrap">
+  <button type="button" data-go="aide">Aide</button>
+  <button type="button" data-go="infos">Infos pratiques</button>
+  <span class="cur" role="group" aria-label="Devise"><button type="button" data-cur="EUR">€ EUR</button><button type="button" data-cur="USD">$ USD</button></span>
+  <button type="button" data-go="voyages">Mes voyages<span class="pill-count" id="tripCount" hidden>0</span></button>
+</div></div>
+
+<header class="top"><div class="wrap">
+  <a class="brand" href="#" data-go="" aria-label="Karrair Voyages, accueil">
+    <span class="brand-logo" role="img" aria-label="Karrair Voyages"></span>
+  </a>
+  <nav class="main" aria-label="Navigation principale">
+    <a href="#" data-go="">Réserver</a>
+    <a href="#destinations" data-go="destinations">Destinations</a>
+    <a href="#voyages" data-go="voyages">Mes voyages</a>
+    <a href="#infos" data-go="infos">Infos pratiques</a>
+    <a href="#aide" data-go="aide">Aide</a>
+  </nav>
+  <button class="burger" type="button" aria-label="Menu" aria-expanded="false"><span></span><span></span><span></span></button>
+</div></header>
+
+<main id="app"></main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div><a class="brand" href="#" data-go="" aria-label="Karrair Voyages, accueil"><span class="brand-logo foot-logo" role="img" aria-label="Karrair Voyages"></span></a><p style="font-size:13.5px;max-width:34ch">Préparateur de voyages personnel : vols depuis Nice Côte d'Azur, hôtels, budget et programmes à pied, restaurants typiques et marchés.</p></div>
+    <div><h4>Voyager</h4><ul><li><button data-go="">Réserver</button></li><li><button data-go="destinations">Destinations</button></li><li><button data-go="voyages">Mes voyages</button></li></ul></div>
+    <div><h4>Préparer</h4><ul><li><button data-go="infos">Visas et formalités</button></li><li><button data-go="infos">Monnaies et prises</button></li><li><button data-go="aide">Calcul des prix</button></li></ul></div>
+    <div><h4>Réserver ailleurs</h4><ul><li><a href="https://www.google.com/travel/flights?hl=fr" target="_blank" rel="noopener">Google Flights</a></li><li><a href="https://www.booking.com/index.fr.html" target="_blank" rel="noopener">Booking.com</a></li><li><a href="https://visitrwanda.com" target="_blank" rel="noopener">Permis gorilles (RDB)</a></li><li><a href="https://www.diplomatie.gouv.fr/fr/conseils-aux-voyageurs/" target="_blank" rel="noopener">Conseils aux voyageurs</a></li></ul></div>
+  </div>
+  <div class="wrap legal">Usage personnel · Prix indicatifs à vérifier avant réservation · Fonds de carte Natural Earth (domaine public)</div>
+</footer>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/world.js"></script>
+<script src="js/data-europe.js"></script>
+<script src="js/data-asie.js"></script>
+<script src="js/data-monde.js"></script>
+<script src="js/photos.js"></script>
+<script src="js/placephotos.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
