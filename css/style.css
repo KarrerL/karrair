@@ -232,7 +232,7 @@ button.field { background: var(--paper); }
 @media (max-width: 480px) { .perks { grid-template-columns: 1fr; } }
 
 /* ───────── Recherche (overlay) ───────── */
-.searching { position: fixed; inset: 0; z-index: 100; background: var(--night); color: #fff; display: grid; place-items: center; padding: 24px; animation: viewIn .3s both; }
+.searching { cursor: pointer; position: fixed; inset: 0; z-index: 100; background: var(--night); color: #fff; display: grid; place-items: center; padding: 24px; animation: viewIn .3s both; }
 .searching .box { width: min(560px, 100%); text-align: center; display: grid; gap: 22px; }
 .searching .route { display: flex; align-items: center; gap: 14px; font: 700 34px var(--f-display); letter-spacing: .06em; justify-content: center; }
 .searching .track { position: relative; height: 54px; }
@@ -613,3 +613,79 @@ header.top .brand { align-self: center; display: flex; align-items: center; heig
 /* centrage optique : le mot KARRAIR (et non l'avion au-dessus) est au milieu de l'en-tête */
 header.top .brand-logo { height: 30px; transform: translateY(-8px); }
 @media (max-width: 480px) { header.top .brand-logo { height: 26px; transform: translateY(-7px); } }
+
+/* Budget : champ du module de réservation et curseur des résultats */
+.bk-body { grid-template-columns: 1fr 1.15fr 1fr 1.15fr .9fr .9fr auto; }
+.bud-in { display: flex; align-items: baseline; gap: 4px; }
+.bud-in input { border: 0; background: transparent; font: 650 16px var(--f-ui); color: var(--ink); width: 100%; min-width: 0; padding: 0; -moz-appearance: textfield; }
+.bud-in input::-webkit-outer-spin-button, .bud-in input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.bud-in input::placeholder { color: var(--slate); font-weight: 500; }
+.bud-in span { font-weight: 650; color: var(--slate); }
+@media (max-width: 1100px) { .bk-body { grid-template-columns: 1fr 1fr 1fr; } }
+@media (max-width: 620px) { .bk-body { grid-template-columns: 1fr 1fr; } .bk-body .f-bud { order: 5; } .bk-body .f-dur { order: 6; } .bk-body .go { order: 7; } }
+.formula { display: grid; gap: 8px; margin-bottom: 18px; padding-bottom: 16px; border-bottom: 1px dashed var(--line); }
+.formula .lv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--cabin); border-radius: 12px; padding: 4px; }
+.formula .lv span { text-align: center; font-size: 12px; font-weight: 700; color: var(--slate); padding: 6px 2px; border-radius: 9px; transition: .3s; }
+.formula .lv span.on { background: var(--ink); color: var(--paper); box-shadow: var(--shadow); }
+.bud-lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--slate); font-weight: 600; margin-top: 4px; }
+.bud-lbl b { color: var(--ink); font-variant-numeric: tabular-nums; }
+#rBud { width: 100%; accent-color: var(--signal); margin: 0; height: 28px; }
+.bud-ends { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--slate); }
+.linkish { background: none; border: 0; padding: 4px 6px; color: var(--signal); font-weight: 700; font-size: 12px; text-decoration: underline; }
+.fit { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--slate); }
+.fit svg { width: 15px; height: 15px; vertical-align: -3px; }
+.fit.ok svg { color: var(--ok); }
+.fit.no { color: var(--warn); font-weight: 600; }
+.fit.no svg { color: var(--warn); }
+
+/* Page figée sous les écrans superposés (chargement, billet, sélecteur, photo) */
+html.locked { overflow: hidden; }
+html.locked body { position: fixed; left: 0; right: 0; overflow: hidden; overscroll-behavior: none; }
+.searching, .tk-bg, .sheet-bg, .lightbox { overscroll-behavior: contain; touch-action: none; }
+.sheet { touch-action: pan-y; }
+
+/* Avion du chargement : cliquable, lance le mini-jeu */
+.searching .trk-plane { position: absolute; top: 50%; left: 0; width: 44px; height: 44px; margin-top: -22px; padding: 0; border: 0; background: none; color: #fff; cursor: pointer; transition: left .4s; border-radius: 50%; }
+.searching .trk-plane svg { position: static; width: 40px; height: 40px; margin: 2px; animation: bob 1.2s ease-in-out infinite; }
+.searching .trk-plane:hover svg, .searching .trk-plane:focus-visible svg { filter: drop-shadow(0 0 8px #ffd66b); }
+@keyframes bob { 50% { transform: rotate(90deg) translateX(-4px); } }
+.searching .egg { margin: 0; color: #6f80b3; font-size: 12px; animation: pulse 2.4s ease-in-out infinite; }
+.searching .game { position: relative; height: 170px; border-radius: 14px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer; box-shadow: 0 20px 50px -20px #000; animation: pop .35s var(--ease) both; }
+.searching .game canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.searching .g-acts { display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; min-height: 38px; }
+.searching .g-hint { color: #8fa2d6; font-size: 12.5px; }
+.searching .g-go.pulse { animation: glow 1.4s ease-in-out infinite; }
+@keyframes glow { 50% { box-shadow: 0 0 0 6px rgba(255, 61, 90, .25), 0 10px 24px -10px var(--signal); } }
+.searching .route { font-size: clamp(26px, 8vw, 34px); }
+
+/* Téléphone : finitions */
+@media (max-width: 560px) {
+  .day summary { grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; padding: 12px 12px; }
+  .day .dt b { font-size: 15px; }
+  .formula .lv span { font-size: 11px; padding: 6px 1px; }
+  .res-hero .itin { gap: 8px; }
+  .res-hero .itin > span:last-child { flex-basis: 100%; }
+  .panel { border-radius: 16px; }
+  .dgal { padding-inline: 12px; grid-auto-columns: minmax(140px, 46%); }
+  .tl { padding: 4px 12px 16px; }
+  .sec-hd { margin-bottom: 18px; }
+  .vis-form .btn { flex: 1 1 auto; }
+  .map-shell { border-radius: 16px; }
+  footer.foot .wrap { grid-template-columns: 1fr 1fr; gap: 22px; }
+  footer.foot .wrap > div:first-child { grid-column: 1 / -1; }
+  .searching .box { gap: 16px; }
+  .searching .game { height: 150px; }
+}
+
+/* Jeu : même scène que le chargement (pas de cadre, fond nuit, ligne de piste) */
+.searching .game { height: 130px; border-radius: 0; box-shadow: none; overflow: visible; background: none; animation: none; margin-inline: -4px; }
+@media (max-width: 560px) { .searching .game { height: 130px; } }
+/* Le jeu occupe exactement la place de la barre de chargement : rien ne bouge à l'écran */
+.searching .game { height: 54px; position: relative; overflow: visible; margin-inline: 0; }
+.searching .game canvas { top: auto; bottom: 0; height: 180px; }
+@media (max-width: 560px) { .searching .game { height: 54px; } }
+.searching .msg { min-height: 3.2em; display: flex; align-items: flex-start; justify-content: center; }
+.searching .egg { min-height: 1.5em; }
+.searching .msg { display: block; }
+.searching .track, .searching .game { margin-top: 34px; }
+.searching .game canvas { height: 130px; }
