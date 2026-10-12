@@ -171,7 +171,7 @@ DEST.cn = {
           ['19:00', 'Hongyadong', 'Maisons sur pilotis illuminées, façon Voyage de Chihiro.', 'w15'],
           ['20:00', 'Fondue de Chongqing (yuanyang)', 'Bouillon pimenté et bouillon clair : poisson, tofu et champignons pour toi.', 'w10']
         ] },
-        { t: 'Karst de Wulong (UNESCO)', c: 55, s: [
+        { t: 'Karst de Wulong (UNESCO)', c: 55, must: true, s: [
           ['07:00', 'Gare de Chongqing Ouest/Nord', 'Train vers Wulong (≈ 1 h 15 selon le train, réservation sur Trip.com).', 'm30'],
           ['08:30', 'Gare de Wulong → centre visiteurs', 'Bus navette vers Tiankeng Sanqiao (≈ 40 min).', 'tr75'],
           ['09:30', 'Trois Ponts naturels (Tiankeng Sanqiao)', 'Ascenseur dans la falaise, puis marche dans le gouffre (lieu de tournage de Transformers).', 'b40'],

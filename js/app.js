@@ -112,13 +112,15 @@
     days: 7,
     pax: 2,
     noFlight: false,
+    budget: null,
     cur: saved.cur || 'EUR',
     last: null
   };
   if (saved.date && saved.date > today) state.date = saved.date;
   if (saved.days) state.days = saved.days;
   if (saved.pax) state.pax = saved.pax;
-  const savePrefs = () => store.set('azurea.prefs', { cur: state.cur, date: state.date, days: state.days, pax: state.pax });
+  if (saved.budget) state.budget = saved.budget;
+  const savePrefs = () => store.set('azurea.prefs', { cur: state.cur, date: state.date, days: state.days, pax: state.pax, budget: state.budget });
 
   /* ───────── Saisons & alertes ───────── */
   const AURORA = { no: { ok: [8, 9, 10, 11, 0, 1, 2], edge: [3] }, fi: { ok: [8, 9, 10, 11, 0, 1, 2], edge: [7, 3] } };
@@ -185,7 +187,8 @@
     return day;
   }
 
-  function buildPlan(k, N) {
+  function buildPlan(k, N, cut) {
+    const cuts = [];
     const d = D[k], ov = d.flight.overnight, m = parseISO(state.date).getMonth();
     const minN = ov ? 3 : 2;
     const tooShortFlight = N < minN;
@@ -240,26 +243,45 @@
       for (let j = 0; j < s.n; j++) {
         let day = j < s.days.length ? s.days[j] : freeDay(d, s, fi++);
         day = adjustDay(k, day, m);
+        /* budget serré : les excursions payantes non essentielles deviennent une journée à pied */
+        if (cut && !day.gorilla && !day.aurora && !day.must && (day.c || 0) >= 35) { cuts.push(day.t); day = Object.assign(freeDay(d, s, fi++), { t: `À pied dans ${s.city.replace(/ (.*)/, '')} (au lieu de : ${day.t})`, c: 5, cut: true }); }
         actCost += day.c || 0;
         /* musées : seulement les insolites, et seulement pour un séjour de plus de 6 jours */
         const steps = day.s.map(st => Array.isArray(st[4]) ? (N > 6 ? st.slice(0, 4).concat('M') : st[4]) : st);
-        add({ t: day.t, c: day.c || 0, s: steps, city: s.city, free: day.free, swapped: day.swapped, gorilla: day.gorilla, aurora: day.aurora && !day.swapped });
+        add({ t: day.t, c: day.c || 0, s: steps, city: s.city, free: day.free, cut: day.cut, swapped: day.swapped, gorilla: day.gorilla, aurora: day.aurora && !day.swapped });
       }
     });
     const last = inc[inc.length - 1] || st[0];
     const back = last.dep.map(s => s.slice());
     if (!state.noFlight) back.push(['', 'Aéroport Nice Côte d\'Azur', 'Bienvenue à la maison ! Tram T2 vers le centre-ville.', 'f:' + returnRoute(d, last.code) + ' · ' + d.flight.dur]);
     add({ t: state.noFlight ? `Départ de ${last.city}` : `Retour à Nice`, kind: 'dep', s: back, city: last.city });
-    return { days, N, actCost, transfers, inc, skipped, short: mustSkipped || (d.warnMin && N < rec), rec, tooShortFlight, retCode: last.code, stops: inc.map(s => s.city) };
+    return { days, N, actCost, transfers, inc, skipped, cuts, short: mustSkipped || (d.warnMin && N < rec), rec, tooShortFlight, retCode: last.code, stops: inc.map(s => s.city) };
+  }
+
+  /* ───────── Formules de budget ───────── */
+  const LEVELS = [
+    { id: 'confort', n: 'Confort', hotel: 1.55, food: 1.4, shop: 1.3, cut: false, h: 'Hôtel 4★ bien noté', f: 'Bonnes tables locales', stars: 4 },
+    { id: 'standard', n: 'Classique', hotel: 1, food: 1, shop: 1, cut: false, h: 'Hôtel 3★ noté 8/10 et plus', f: 'Restaurants typiques', stars: 3 },
+    { id: 'malin', n: 'Malin', hotel: .7, food: .75, shop: .7, cut: false, h: 'Hôtel 2★ ou guesthouse bien notée', f: 'Midi street-food et marchés, soir restaurant typique', stars: 2 },
+    { id: 'eco', n: 'Petit budget', hotel: .52, food: .58, shop: .45, cut: true, h: 'Chambre privée en auberge ou guesthouse', f: 'Street-food, marchés et cantines locales', stars: 1 }
+  ];
+  /* Choisit la formule la plus confortable qui tient dans le budget par personne */
+  function fit(k, opts) {
+    const B = state.budget;
+    if (!B) return quote(k, Object.assign({}, opts, { L: LEVELS[1] }));
+    let q;
+    for (const L of LEVELS) { q = quote(k, Object.assign({}, opts, { L })); if (q.perPerson <= B) { q.fits = true; return q; } }
+    q.fits = false; return q;
   }
 
   /* ───────── Calcul du prix ───────── */
   function quote(k, opts) {
-    const o = Object.assign({ days: state.days, pax: state.pax, date: state.date, noFlight: state.noFlight }, opts || {});
+    const o = Object.assign({ days: state.days, pax: state.pax, date: state.date, noFlight: state.noFlight, L: LEVELS[1] }, opts || {});
+    const L = o.L;
     const d = D[k], m = parseISO(o.date).getMonth();
     const keep = { days: state.days, date: state.date, noFlight: state.noFlight };
     Object.assign(state, { days: o.days, date: o.date, noFlight: o.noFlight });
-    const plan = buildPlan(k, o.days);
+    const plan = buildPlan(k, o.days, L.cut);
     Object.assign(state, keep);
     const N = plan.N;
     const lead = Math.round((parseISO(o.date) - parseISO(today)) / 864e5);
@@ -267,16 +289,16 @@
     const flightPP = o.noFlight ? 0 : r5(d.flight.base * FLIGHT_SEASON[d.flight.season][m] * leadF);
     const nights = Math.max(1, N - (d.flight.overnight && !o.noFlight ? 2 : 1));
     const rooms = o.pax === 1 ? [{ t: 'double', n: 'Chambre double (seul·e)', f: .92 }] : o.pax === 2 ? [{ t: 'double', n: 'Chambre double', f: 1 }] : o.pax === 3 ? [{ t: 'double', n: 'Chambre double', f: 1 }, { t: 'single', n: 'Chambre simple', f: .8 }] : [{ t: 'double', n: 'Chambre double', f: 1 }, { t: 'double', n: 'Chambre double', f: 1 }];
-    const night = d.hotel.night * d.hotel.season[m];
+    const night = d.hotel.night * d.hotel.season[m] * L.hotel;
     const hotelTotal = r5(nights * night * rooms.reduce((a, r) => a + r.f, 0));
     const daysOn = nights + 1;
-    const foodPP = r5(d.food * daysOn);
+    const foodPP = r5(d.food * L.food * daysOn);
     const actPP = r5(plan.actCost);
     const localPP = r5(d.local * daysOn + plan.transfers);
-    const shopPP = r5(d.shop * 1.4 * Math.min(1.6, Math.max(.6, .5 + N / 14)));
+    const shopPP = r5(d.shop * 1.4 * L.shop * Math.min(1.6, Math.max(.6, .5 + N / 14)));
     const pp = { flight: flightPP, hotel: r5(hotelTotal / o.pax), food: foodPP, act: actPP, local: localPP, shop: shopPP };
     const perPerson = Object.values(pp).reduce((a, b) => a + b, 0);
-    return { k, pp, perPerson, total: perPerson * o.pax, hotelTotal, night: r5(night), nights, rooms, plan, N, pax: o.pax, lead, flightRange: [r5(flightPP * .85), r5(flightPP * 1.2)], short: plan.short, rec: plan.rec, tooShortFlight: plan.tooShortFlight };
+    return { k, L, pp, perPerson, total: perPerson * o.pax, hotelTotal, night: r5(night), nights, rooms, plan, N, pax: o.pax, lead, flightRange: [r5(flightPP * .85), r5(flightPP * 1.2)], short: plan.short, rec: plan.rec, tooShortFlight: plan.tooShortFlight };
   }
 
   /* ───────── Rendu commun ───────── */
@@ -377,6 +399,7 @@
         <div class="field f-date"><label for="bkDate">Aller</label><input id="bkDate" type="date" min="${addDays(today, 1)}" value="${state.date}"><span class="sub" id="bkRet">Retour le ${fmtDate(end)}</span></div>
         <div class="field dur f-dur"><label for="bkDays">Durée</label><span class="val num" id="bkDaysV">${plural(state.days, 'jour')} · ${plural(state.days - 1, 'nuit')}</span><input id="bkDays" type="range" min="2" max="21" step="1" value="${state.days}" aria-valuetext="${state.days} jours"></div>
         <div class="field f-pax"><span class="lbl">Voyageurs</span><div class="stepper"><button type="button" id="paxM" aria-label="Retirer un voyageur" ${state.pax <= 1 ? 'disabled' : ''}>−</button><span class="val num" id="paxV">${state.pax}</span><button type="button" id="paxP" aria-label="Ajouter un voyageur" ${state.pax >= 4 ? 'disabled' : ''}>+</button></div><span class="sub" id="paxS">${roomText(state.pax)}</span></div>
+        <div class="field f-bud"><label for="bkBud">Budget / pers.</label><div class="bud-in"><input id="bkBud" type="number" inputmode="numeric" min="100" step="50" placeholder="Sans limite" value="${state.budget || ''}"><span>€</span></div><span class="sub" id="bkBudS">${state.budget ? 'Programme adapté au budget' : 'Facultatif'}</span></div>
         <button class="btn btn-red go" type="submit">${I.search}Rechercher</button>
       </form>
       <div class="bk-foot"><span>${I.leaf.replace('<svg', '<svg width="16" height="16" style="vertical-align:-3px;color:var(--ok)"')} Restos locaux + plats sans viande pour toi</span><span>Économique · bagage cabine</span><span class="bk-err" id="bkErr" role="alert"></span></div>
@@ -396,6 +419,7 @@
     const setPax = n => { state.pax = Math.min(4, Math.max(1, n)); $('#paxV').textContent = state.pax; $('#paxS').textContent = roomText(state.pax); $('#paxM').disabled = state.pax <= 1; $('#paxP').disabled = state.pax >= 4; savePrefs(); refreshPrices(); };
     $('#paxM', root).addEventListener('click', () => setPax(state.pax - 1));
     $('#paxP', root).addEventListener('click', () => setPax(state.pax + 1));
+    $('#bkBud', root).addEventListener('input', e => { const v = parseInt(e.target.value, 10); state.budget = v >= 100 ? v : null; $('#bkBudS').textContent = state.budget ? 'Programme adapté au budget' : 'Facultatif'; savePrefs(); });
     $('#bkForm', root).addEventListener('submit', e => { e.preventDefault(); search(); });
   }
   function refreshPrices() { if (window.__mapApi) window.__mapApi.refresh(); }
@@ -415,8 +439,8 @@
       <input type="search" id="pkQ" placeholder="Pays ou ville…" autocomplete="off">
       <div class="sheet-list">${ORDER.map(k => `<button data-k="${k}"><span class="chip-fl">${flag(k)}</span><span><b>${esc(D[k].name)}</b><small>${esc(D[k].city)} · ${esc(D[k].code)}</small></span></button>`).join('')}</div>
       <button class="btn btn-ink btn-sm" data-map style="margin-top:14px">${I.globe}Voir sur la carte</button></div>`;
-    document.body.appendChild(bg);
-    const close = () => bg.remove();
+    document.body.appendChild(bg); lockScroll(); noTouchScroll(bg);
+    const close = () => { if (bg.isConnected) { bg.remove(); unlockScroll(); } };
     bg.addEventListener('click', e => { if (e.target === bg || e.target.closest('[data-x]')) close(); });
     $('[data-map]', bg).addEventListener('click', () => { close(); const m = $('#map'); if (m) m.scrollIntoView({ behavior: 'smooth' }); else go(''); });
     $$('[data-k]', bg).forEach(b => b.addEventListener('click', () => { setDest(b.dataset.k); close(); }));
@@ -530,7 +554,7 @@
       const k = el.dataset.k, id = el.dataset.id || (k && D[k].iso);
       const seen = id && visited.has(id) ? `<span class="vtag">Déjà visité</span>` : '';
       if (k && !mark) {
-        const d = D[k], q = quote(k);
+        const d = D[k], q = fit(k);
         tip.innerHTML = `<b>${esc(d.name)}</b>${seen}${esc(d.city)} · ${esc(d.flight.dur)}<br><span class="p">${money(q.perPerson)}</span> / pers. · ${state.days} j · ${state.pax} pers.`;
         $$(`[data-k="${k}"]`, svg).forEach(p => p.classList.add('hover'));
       } else {
@@ -705,22 +729,136 @@
     after(app);
   }
 
+  /* ───────── Défilement figé pendant les écrans par-dessus la page ───────── */
+  let lockN = 0, lockY = 0;
+  function lockScroll() {
+    if (lockN++ > 0) return;
+    lockY = scrollY;
+    document.documentElement.classList.add('locked');
+    document.body.style.top = -lockY + 'px';
+  }
+  function unlockScroll(keep) {
+    if (lockN === 0 || --lockN > 0) return;
+    document.documentElement.classList.remove('locked');
+    document.body.style.top = '';
+    if (keep !== false) scrollTo({ top: lockY, behavior: 'instant' });
+  }
+  const noTouchScroll = el => el.addEventListener('touchmove', e => { if (!e.target.closest('.sheet, .lightbox figure')) e.preventDefault(); }, { passive: false });
+
   function search() {
     if (!state.dest) { const e = $('#bkErr'); if (e) e.textContent = 'Choisissez une destination sur la carte ou dans la liste.'; const f = $('#pickDest'); if (f) { f.classList.add('active'); f.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' }, { transform: 'translateX(0)' }], { duration: 300, iterations: 2 }); } return; }
     const d = D[state.dest];
     const ov = document.createElement('div'); ov.className = 'searching'; ov.setAttribute('role', 'status');
     ov.innerHTML = `<div class="box"><div class="route"><span>NCE</span>${I.plane.replace('<svg', '<svg width="30" height="30" style="transform:rotate(90deg)"')}<span>${esc(d.code)}</span></div>
-      <div class="track"><div class="ln"></div><div class="done"></div>${I.plane.replace('<svg', '<svg style="transform:rotate(90deg)"')}</div><div class="msg"></div></div>`;
-    document.body.appendChild(ov);
+      <div class="track"><div class="ln"></div><div class="done"></div><button type="button" class="trk-plane" aria-label="Avion : toucher pour jouer pendant le chargement">${I.plane.replace('<svg', '<svg style="transform:rotate(90deg)"')}</button></div>
+      <div class="msg"></div><p class="egg">Touche l'écran pour jouer pendant le chargement</p></div>`;
+    document.body.appendChild(ov); lockScroll(); noTouchScroll(ov);
     const msgs = [`Comparaison des vols <b>Nice → ${esc(d.city)}</b>`, `Recherche d'hôtels <b>${esc(roomText(state.pax))}</b>`, `Calcul du coût de la vie en <b>${MOIS_L[parseISO(state.date).getMonth()]}</b>`, `Construction du programme <b>${state.days} jours</b> à pied`];
     const steps = matchMedia('(prefers-reduced-motion: reduce)').matches ? 1 : msgs.length;
-    let i = 0;
+    let i = 0, playing = false, ready = false;
+    const finish = () => { ov.style.transition = 'opacity .3s'; ov.style.opacity = 0; setTimeout(() => ov.remove(), 300); unlockScroll(false); state.last = { k: state.dest }; go('resultats'); };
     const next = () => {
-      if (i >= steps) { ov.style.transition = 'opacity .3s'; ov.style.opacity = 0; setTimeout(() => ov.remove(), 300); state.last = { k: state.dest }; go('resultats'); return; }
-      const k = (i + 1) / steps * 100; $('.msg', ov).innerHTML = msgs[i]; $('.done', ov).style.width = k + '%'; $('.track svg', ov).style.left = `calc(${k}% - ${k / 100 * 20}px)`;
+      if (i >= steps) {
+        ready = true;
+        if (playing) { $('.msg', ov).innerHTML = 'Résultats prêts : ils s\'ouvriront à ton prochain <b>atterrissage forcé</b>'; return; }
+        return finish();
+      }
+      const k = (i + 1) / steps * 100, dn = $('.done', ov), pl = $('.trk-plane', ov); $('.msg', ov).innerHTML = msgs[i]; if (dn) dn.style.width = k + '%'; if (pl) pl.style.left = `calc(${k}% - ${k / 100 * 40}px)`;
       i++; setTimeout(next, 620);
     };
+    /* Un toucher n'importe où sur l'écran lance le jeu, puis fait sauter l'avion */
+    let game = null, leaving = false;
+    const crashed = () => { if (ready && !leaving) { leaving = true; setTimeout(finish, 1300); } };
+    const tap = e => {
+      e.preventDefault();
+      if (leaving) return;
+      if (game) return game.jump();
+      playing = true;
+      const trk = $('.track', ov), tb = trk.getBoundingClientRect(), pb0 = $('.trk-plane', ov).getBoundingClientRect();
+      const startX = pb0.left + pb0.width / 2 - tb.left;
+      trk.replaceWith(Object.assign(document.createElement('div'), { className: 'game', innerHTML: '<canvas></canvas>' }));
+      $('.egg', ov).textContent = 'Touche l\'écran ou Espace pour sauter';
+      game = runnerGame($('.game', ov), () => ov.isConnected, crashed, startX);
+      game.jump();
+    };
+    ov.addEventListener('pointerdown', tap);
+    const key = e => { if (!ov.isConnected) return removeEventListener('keydown', key); if (e.code === 'Escape' && ready && !leaving) { leaving = true; finish(); return; } if (!game && (e.code === 'Space' || e.code === 'ArrowUp')) tap(e); };
+    addEventListener('keydown', key);
     next();
+  }
+
+  /* ───────── Mini-jeu façon « dino », dessiné dans le style exact de l'écran de chargement ───────── */
+  function runnerGame(box, alive, onOver, startX) {
+    const c = $('canvas', box), x = c.getContext('2d');
+    const PLANE = new Path2D('M21.5 15.5v-2l-8-5V3.2a1.5 1.5 0 0 0-3 0V8.5l-8 5v2l8-2.5V18l-2.5 1.8V21l4-1 4 1v-1.2L13.5 18v-5z');
+    let W = 0, H = 0;
+    const size = () => { const dpr = Math.min(devicePixelRatio || 1, 2), b = c.getBoundingClientRect(); W = b.width; H = b.height; c.width = W * dpr; c.height = H * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    size(); addEventListener('resize', size);
+    const GROUND = () => H - 27;
+    const X0 = startX || 34; let PX = X0; const t0 = performance.now();
+    const targetX = () => Math.min(140, Math.max(60, W * .26));
+    const glide = now => { const k = Math.min(1, (now - t0) / 800), e = 1 - Math.pow(1 - k, 3); PX = X0 + (targetX() - X0) * e; return k >= 1; };
+    let hi = 0; try { hi = +localStorage.getItem('karrair.hi') || 0; } catch (e) { }
+    let st, last;
+    const reset = () => { st = { mode: 'ready', y: 0, vy: 0, speed: .34, dist: 0, obs: [], gap: 380, t: 0, flash: 0 }; };
+    reset();
+    function jump() {
+      if (st.mode === 'ready') st.mode = 'run';
+      if (st.mode === 'over') { if (st.t > 450) { reset(); st.mode = 'run'; } return; }
+      if (st.y === 0) st.vy = .64;
+    }
+    const key = e => { if (!alive()) return removeEventListener('keydown', key); if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); } };
+    addEventListener('keydown', key);
+    function spawn() {
+      const r = Math.random();
+      if (r < .5) st.obs.push({ k: 'tower', x: W + 20, w: 12, h: 18 + Math.random() * 12 });
+      else if (r < .78) st.obs.push({ k: 'cones', x: W + 20, w: 20 + Math.random() * 12, h: 11 });
+      else st.obs.push({ k: 'bird', x: W + 20, w: 18, h: 10, y: 26 + Math.random() * 10, f: 0 });
+      st.gap = 260 + Math.random() * 360 + st.speed * 260;
+    }
+    function frame(now) {
+      if (!alive()) { removeEventListener('resize', size); return; }
+      const dt = Math.min(40, now - (last || now)); last = now; st.t += dt;
+      const g = GROUND();
+      if (st.mode === 'run') {
+        st.speed = Math.min(.95, st.speed + dt * .000012);
+        st.dist += st.speed * dt;
+        st.vy -= .0032 * dt; st.y = Math.max(0, st.y + st.vy * dt); if (st.y === 0) st.vy = 0;
+        if (glide(now)) { st.gap -= st.speed * dt; if (st.gap <= 0) spawn(); }
+        st.obs.forEach(o => { o.x -= st.speed * dt; if (o.k === 'bird') o.f += dt; });
+        st.obs = st.obs.filter(o => o.x + o.w > -10);
+        const pb = { l: PX - 14, r: PX + 18, t: g - st.y - 12, b: g - st.y + 10 };
+        for (const o of st.obs) {
+          const ob = o.k === 'bird' ? { l: o.x + 3, r: o.x + o.w - 3, t: g - o.y - o.h, b: g - o.y } : { l: o.x + 2, r: o.x + o.w - 2, t: g - o.h + 2, b: g };
+          if (pb.l < ob.r && pb.r > ob.l && pb.t < ob.b && pb.b > ob.t) {
+            st.mode = 'over'; st.t = 0; st.flash = 1;
+            const sc = Math.floor(st.dist / 10); if (sc > hi) { hi = sc; try { localStorage.setItem('karrair.hi', hi); } catch (e) { } }
+            if (onOver) onOver();
+          }
+        }
+      }
+      x.clearRect(0, 0, W, H);
+      /* piste : la même ligne pointillée et la même trace rouge que la barre de chargement */
+      x.setLineDash([6, 6]); x.lineDashOffset = st.dist % 12; x.strokeStyle = 'rgba(255,255,255,.25)'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(0, g); x.lineTo(W, g); x.stroke(); x.setLineDash([]);
+      x.fillStyle = '#ff4d63'; x.fillRect(0, g - 1, PX, 2);
+      st.obs.forEach(o => {
+        if (o.k === 'tower') { x.fillStyle = 'rgba(255,255,255,.85)'; x.fillRect(o.x + 5, g - o.h + 9, 4, o.h - 9); x.fillRect(o.x, g - o.h, o.w, 8); x.fillStyle = '#ff4d63'; x.fillRect(o.x + 5, g - o.h - 4, 4, 4); }
+        else if (o.k === 'cones') { x.fillStyle = '#ff4d63'; for (let cx = o.x; cx < o.x + o.w - 6; cx += 10) { x.beginPath(); x.moveTo(cx, g); x.lineTo(cx + 4.5, g - o.h); x.lineTo(cx + 9, g); x.fill(); } }
+        else { x.strokeStyle = 'rgba(255,255,255,.85)'; x.lineWidth = 2; const fy = g - o.y - o.h / 2, wv = Math.sin(o.f / 90) * 5; x.beginPath(); x.moveTo(o.x, fy - wv); x.quadraticCurveTo(o.x + o.w / 4, fy - 5, o.x + o.w / 2, fy); x.quadraticCurveTo(o.x + o.w * .75, fy - 5, o.x + o.w, fy - wv); x.stroke(); }
+      });
+      /* l'avion : la même silhouette blanche de 40 px que sur la barre de chargement */
+      const tilt = st.y > 0 ? Math.max(-.4, -st.vy * .5) : 0;
+      x.save(); x.translate(PX, g - st.y); x.rotate(Math.PI / 2 + tilt); x.scale(40 / 24, 40 / 24); x.translate(-12, -12); x.fillStyle = '#fff'; x.fill(PLANE); x.restore();
+      x.fillStyle = '#8fa2d6'; x.font = '600 12px ' + getComputedStyle(document.body).fontFamily; x.textAlign = 'right';
+      x.fillText(`Record ${hi}   ·   ${Math.floor(st.dist / 10)}`, W - 4, g + 21);
+      x.textAlign = 'center'; x.fillStyle = '#b8c4e8'; x.font = '15px ' + getComputedStyle(document.body).fontFamily;
+      if (st.mode === 'over') x.fillText('Atterrissage forcé ! Touche pour repartir', W / 2, g - 34);
+      if (st.flash > 0) { x.globalAlpha = st.flash * .5; x.fillStyle = '#ff4d63'; x.fillRect(0, g - 1, W, 2); x.globalAlpha = 1; st.flash = Math.max(0, st.flash - dt / 500); }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    return { jump };
   }
 
   function mapsLink(a, b, mode, city) {
@@ -741,8 +879,8 @@
     const b = e.target.closest('[data-lb]'); if (!b) return;
     const bg = document.createElement('div'); bg.className = 'lightbox';
     bg.innerHTML = `<figure><img src="${esc(b.dataset.lb)}" alt="${esc(b.dataset.cap)}"><figcaption><b>${esc(b.dataset.cap)}</b><span>Photo : ${esc(b.dataset.cr)}</span></figcaption></figure><button type="button" class="lb-x" aria-label="Fermer">×</button>`;
-    document.body.appendChild(bg);
-    const close = () => { bg.classList.add('out'); setTimeout(() => bg.remove(), 250); document.removeEventListener('keydown', onKey); };
+    document.body.appendChild(bg); lockScroll(); noTouchScroll(bg);
+    const close = () => { if (bg.classList.contains('out')) return; bg.classList.add('out'); unlockScroll(); setTimeout(() => bg.remove(), 250); document.removeEventListener('keydown', onKey); };
     const onKey = ev => { if (ev.key === 'Escape') close(); };
     bg.addEventListener('click', close); document.addEventListener('keydown', onKey);
   });
@@ -771,12 +909,13 @@
 
   function renderResults() {
     const k = state.dest; if (!k) return go('');
-    const d = D[k], q = quote(k), plan = q.plan, end = addDays(state.date, q.N - 1);
+    const d = D[k], q = fit(k), plan = q.plan, end = addDays(state.date, q.N - 1);
+    const lo = quote(k, { L: LEVELS[3] }).perPerson, hi = quote(k, { L: LEVELS[0] }).perPerson;
     const alerts = warnings(k, q);
     let mode = 'pp';
     const ret = returnRoute(d, plan.retCode);
     const gf = `https://www.google.com/travel/flights?q=${encodeURIComponent(`Vols de NCE à ${d.flight.route.split(' → ').pop()} le ${state.date} retour le ${end} en économique ${state.pax} adultes`)}&hl=fr&curr=EUR`;
-    const bk = `https://www.booking.com/searchresults.fr.html?ss=${encodeURIComponent(d.city + ', ' + d.name)}&checkin=${state.date}&checkout=${addDays(state.date, q.nights + (d.flight.overnight && !state.noFlight ? 1 : 0))}&group_adults=${state.pax}&no_rooms=${q.rooms.length}&group_children=0&nflt=${encodeURIComponent('class=3;review_score=80')}`;
+    const bk = `https://www.booking.com/searchresults.fr.html?ss=${encodeURIComponent(d.city + ', ' + d.name)}&checkin=${state.date}&checkout=${addDays(state.date, q.nights + (d.flight.overnight && !state.noFlight ? 1 : 0))}&group_adults=${state.pax}&no_rooms=${q.rooms.length}&group_children=0&nflt=${encodeURIComponent('class=' + Math.max(2, q.L.stars) + ';review_score=' + (q.L.stars >= 3 ? 80 : 70))}`;
     const roomsHTML = q.rooms.map(r => `<div class="room">${r.t === 'single' ? I.single : I.bed}<span><b>${r.n}</b><br><span style="color:var(--slate);font-size:12.5px">${r.t === 'single' ? '≈ 80 % du prix d\'une double' : 'Lit double ou twin'}</span></span></div>`).join('');
     app.innerHTML = `<div class="view">
       <section class="res-hero">${photo(k, 0, false, 'kb')}<div class="wrap">
@@ -805,7 +944,7 @@
             <div class="panel rv" id="r-hotel"><div class="panel-hd"><b class="h3">Votre hébergement</b><a class="btn btn-ghost btn-sm" href="${bk}" target="_blank" rel="noopener">${I.bed}Voir les hôtels sur Booking</a></div>
               <div class="rooms">${roomsHTML}</div>
               <div class="kv"><div><small>Quartier conseillé</small><b>${esc(d.hotel.area)}</b></div><div><small>Prix / nuit (double)</small><b class="num">${money(q.night)}</b></div><div><small>Nuits</small><b>${q.nights}</b></div><div><small>Total hébergement</small><b class="num">${money(q.hotelTotal)}</b></div><div><small>Votre part</small><b class="num">${money(q.pp.hotel)}</b></div></div>
-              <p style="font-size:13px;color:var(--slate);margin:12px 0 0">Base : hôtel 3★ ou riad noté 8/10 et plus, petit-déjeuner non inclus. Étapes : ${plan.stops.map(esc).join(' → ')}.</p>
+              <p style="font-size:13px;color:var(--slate);margin:12px 0 0">Formule ${esc(q.L.n)} : ${esc(q.L.h)}, petit-déjeuner non inclus. Étapes : ${plan.stops.map(esc).join(' → ')}.</p>
             </div>
             <div class="panel rv" id="r-programme"><div class="panel-hd"><b class="h3">Programme jour par jour</b><div style="display:flex;gap:8px"><button class="btn btn-ghost btn-sm" id="openAll">Tout déplier</button></div></div>
               <p style="margin:-6px 0 16px;color:var(--slate);font-size:13.5px">Cliquez sur un trajet pour l'ouvrir dans Google Maps. Les horaires sont indicatifs ; les durées de marche sont calculées entre les lieux cités.</p>
@@ -818,6 +957,13 @@
           <aside class="aside-sticky" id="r-budget" style="order:0">
             <div class="panel rv">
               <div class="panel-hd"><b class="h3">Budget estimé</b><div class="seg" role="group" aria-label="Affichage du budget"><button data-mode="pp" aria-pressed="true">Par pers.</button><button data-mode="grp" aria-pressed="false">Groupe</button></div></div>
+              <div class="formula">
+                <div class="lv" role="group" aria-label="Formule">${LEVELS.map(L => `<span class="${L.id === q.L.id ? 'on' : ''}">${L.n}</span>`).join('')}</div>
+                <label for="rBud" class="bud-lbl"><span>Mon budget max / pers.</span><b id="rBudV">${state.budget ? money(state.budget) : 'Sans limite'}</b></label>
+                <input type="range" id="rBud" min="${Math.floor(lo * .85 / 50) * 50}" max="${Math.ceil(hi * 1.25 / 50) * 50}" step="50" value="${state.budget || Math.ceil(hi * 1.25 / 50) * 50}">
+                <div class="bud-ends"><span>${money(Math.floor(lo * .85 / 50) * 50)}</span><button type="button" class="linkish" id="rBudX">Sans limite</button><span>${money(Math.ceil(hi * 1.25 / 50) * 50)}</span></div>
+                ${state.budget ? (q.fits ? `<p class="fit ok">${I.check} Formule <b>${esc(q.L.n)}</b> : ${esc(q.L.h.toLowerCase())}, ${esc(q.L.f.toLowerCase())}${plan.cuts.length ? `. ${plan.cuts.length} excursion${plan.cuts.length > 1 ? 's' : ''} payante${plan.cuts.length > 1 ? 's' : ''} remplacée${plan.cuts.length > 1 ? 's' : ''} par des journées à pied` : ''}.</p>` : `<p class="fit no">${I.warn} Budget trop serré : même en formule Petit budget, il faut compter ${money(q.perPerson)} par personne. Raccourcis le séjour ou change de dates.</p>`) : `<p class="fit">Formule <b>Classique</b> : ${esc(q.L.h.toLowerCase())}, ${esc(q.L.f.toLowerCase())}.</p>`}
+              </div>
               <div class="total"><span class="big num"><span id="bigN" data-count="${q.perPerson}">${money(q.perPerson)}</span><small id="bigU">/ personne</small></span><span class="grp" id="grpL">${state.pax > 1 ? `Soit ${money(q.total)} pour ${state.pax} voyageurs` : 'Pour 1 voyageur'}</span></div>
               <svg class="donut" viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="44" stroke="var(--cabin)"/>${CAT.map(c => `<circle data-arc="${c.k}" cx="60" cy="60" r="44" stroke="${c.c}" stroke-dasharray="0 277" transform="rotate(-90 60 60)"/>`).join('')}<text x="60" y="56" text-anchor="middle" style="font:700 11px var(--f-ui);fill:var(--slate)">${q.N} jours</text><text x="60" y="72" text-anchor="middle" style="font:700 13px var(--f-display);fill:var(--ink)">${esc(d.city)}</text></svg>
               <div class="cats" id="cats"></div>
@@ -830,7 +976,7 @@
           </aside>
         </div>
       </section></div>`;
-    const notes = { flight: state.noFlight ? 'Non inclus' : `${d.flight.air}, ${d.flight.stops ? '1 escale' : 'direct'}`, hotel: `${q.nights} nuits · ${roomText(state.pax)}`, food: `${d.food} €/jour/pers. (coût de la vie local)`, act: 'Entrées, excursions, guides' + (k === 'rw' ? ' · dont permis gorilles' : ''), local: 'Métro, bus, taxis, trains entre villes', shop: 'Souvenirs et petits achats' };
+    const notes = { flight: state.noFlight ? 'Non inclus' : `${d.flight.air}, ${d.flight.stops ? '1 escale' : 'direct'}`, hotel: `${q.nights} nuits · ${roomText(state.pax)}`, food: `${q.L.f} · ${r5(d.food * q.L.food)} €/jour/pers.`, act: 'Entrées, excursions, guides' + (k === 'rw' ? ' · dont permis gorilles' : ''), local: 'Métro, bus, taxis, trains entre villes', shop: 'Souvenirs et petits achats' };
     const drawBudget = () => {
       const f = mode === 'pp' ? 1 : state.pax, tot = q.perPerson * f;
       $('#bigN').textContent = money(tot); $('#bigU').textContent = mode === 'pp' ? '/ personne' : `/ ${state.pax} pers.`;
@@ -840,6 +986,10 @@
       let acc = 0; const C = 2 * Math.PI * 44;
       CAT.forEach(c => { const el = $(`[data-arc="${c.k}"]`), part = q.perPerson ? q.pp[c.k] / q.perPerson * C : 0; el.style.strokeDasharray = `${Math.max(0, part - 1.5)} ${C}`; el.style.strokeDashoffset = -acc; acc += part; });
     };
+    const rb = $('#rBud'), rbMax = +rb.max;
+    rb.addEventListener('input', () => { $('#rBudV').textContent = +rb.value >= rbMax ? 'Sans limite' : money(+rb.value); });
+    rb.addEventListener('change', () => { state.budget = +rb.value >= rbMax ? null : +rb.value; savePrefs(); const y = scrollY; renderResults(); scrollTo({ top: y, behavior: 'instant' }); toast(state.budget ? `Programme recalculé pour ${money(state.budget)} par personne` : 'Budget sans limite'); });
+    $('#rBudX').addEventListener('click', () => { state.budget = null; savePrefs(); const y = scrollY; renderResults(); scrollTo({ top: y, behavior: 'instant' }); });
     $$('[data-mode]').forEach(b => b.addEventListener('click', () => { $('#bigN').dataset.stop = 1; mode = b.dataset.mode; $$('[data-mode]').forEach(x => x.setAttribute('aria-pressed', x === b)); drawBudget(); }));
     $$('[data-alert]').forEach(b => b.addEventListener('click', () => alerts[+b.dataset.alert].act.f()));
     const edit = () => { go(''); setTimeout(() => $('#booking') && $('#booking').scrollIntoView({ behavior: 'smooth', block: 'center' }), 120); };
@@ -887,7 +1037,7 @@
       </div>
     </div>
     <p class="tk-hint">Clique sur le billet pour le composter</p>`;
-    document.body.appendChild(bg);
+    document.body.appendChild(bg); lockScroll(); noTouchScroll(bg);
     const tk = $('.tk', bg); let done = false;
     const tear = () => {
       if (done) return; done = true;
@@ -900,11 +1050,11 @@
         if (target) { const a = main.getBoundingClientRect(), b = target.getBoundingClientRect(); main.style.setProperty('--fx', (b.left + b.width / 2 - (a.left + a.width / 2)) + 'px'); main.style.setProperty('--fy', (b.top + b.height / 2 - (a.top + a.height / 2)) + 'px'); }
         tk.classList.add('fly');
       }, 1750);
-      setTimeout(() => bg.remove(), 2800);
+      setTimeout(() => { bg.remove(); unlockScroll(); }, 2800);
     };
     tk.addEventListener('click', e => { e.stopPropagation(); tear(); });
     tk.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tear(); } });
-    bg.addEventListener('click', () => { if (!done) bg.remove(); });
+    bg.addEventListener('click', () => { if (!done) { bg.remove(); unlockScroll(); } });
     setTimeout(() => tk.focus(), 50);
   }
   function fallbackCopy(txt) {
